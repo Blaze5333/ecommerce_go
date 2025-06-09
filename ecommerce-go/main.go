@@ -26,4 +26,5 @@ func main() {
 	router.GET("/cartcheckout", app.BuyFromCart())
 	router.GET("/instantly", app.InstantBuy())
 	log.Fatal(router.Run(":" + port))
+	log.Println("Server running on port:", port)
 }
