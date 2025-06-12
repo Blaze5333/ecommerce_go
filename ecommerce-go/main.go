@@ -28,3 +28,10 @@ func main() {
 	log.Fatal(router.Run(":" + port))
 	log.Println("Server running on port:", port)
 }
+
+// test
+// func main() {
+// 	fmt.Println("now time ", time.Now().Format("2006-01-02T15:04:05Z07:00"))
+// 	t, _ := time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+// 	fmt.Println("second time", t)
+// }
