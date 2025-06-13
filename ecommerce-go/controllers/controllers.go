@@ -3,25 +3,41 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Blaze5333/ecommerce_go/database"
 	"github.com/Blaze5333/ecommerce_go/models"
 	"github.com/Blaze5333/ecommerce_go/tokens"
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
-// hash password,verify password
-func HashPassword(password string) string {
-	// Implementation for hashing the password
-	return password // Placeholder, replace with actual hashing logic
+var Validate = validator.New()
+var UserCollection *mongo.Collection = database.UserData(database.Client, "Users")
+var ProductCollection *mongo.Collection = database.ProductData(database.Client, "Products")
+
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		log.Panic("Error hashing password:", err)
+		return "", err
+	}
+	return string(bytes), nil
 }
 func VerifyPassword(userpassword, givenpassword string) (bool, string) {
 	// Implementation for verifying the password
-	return userpassword == givenpassword, "Password verification failed" // Placeholder, replace with actual verification logic
+	err := bcrypt.CompareHashAndPassword([]byte(userpassword), []byte(givenpassword))
+	if err != nil {
+		return false, "Password verification failed"
+	}
+	return true, ""
 }
 
 // signup
@@ -40,7 +56,7 @@ func SignUp() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
 		}
-		UserCollection := database.UserData(database.Client, "Users")
+
 		var count, err = UserCollection.CountDocuments(ctx, bson.M{"email": user.Email})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error checking user existence"})
@@ -59,7 +75,11 @@ func SignUp() gin.HandlerFunc {
 			c.JSON(http.StatusConflict, gin.H{"error": "Phone number already exists"})
 			return
 		}
-		password := HashPassword(*user.Password)
+		password, err := HashPassword(*user.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error hashing password"})
+			return
+		}
 		user.Password = &password
 		user.Created_At, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
 		user.Updated_At, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
@@ -97,7 +117,6 @@ func Login() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
 		}
-		UserCollection := database.UserData(database.Client, "Users")
 
 		var foundUser models.User
 		err := UserCollection.FindOne(ctx, bson.M{"email": &user.Email}).Decode(&foundUser)
@@ -139,7 +158,25 @@ func AddProduct() gin.HandlerFunc {
 func SearchProduct() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Implementation for searching a product
-		c.JSON(200, gin.H{"message": "Product search results"})
+		var productList []models.Product
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+		cursor, err := ProductCollection.Find(ctx, bson.M{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching products"})
+			return
+		}
+		defer cursor.Close(ctx)
+		err = cursor.All(ctx, &productList)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding products"})
+			return
+		}
+		if err = cursor.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching products"})
+			return
+		}
+		c.JSON(200, productList)
 	}
 }
 
@@ -147,7 +184,40 @@ func SearchProduct() gin.HandlerFunc {
 
 func SearchProductByQuery() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Implementation for searching a product by query
-		c.JSON(200, gin.H{"message": "Product search results by query"})
+		query, err := c.GetQuery("query")
+		var a string = "mustafa chai"
+
+		var productList []models.Product
+		if err != true || strings.TrimSpace(a) == "" {
+			log.Println("Query parameter is required")
+			c.Header("Content-Type", "application/json")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter is required"})
+			c.Abort()
+			return
+		}
+		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+		filter := bson.M{
+			"$or": []bson.M{
+				{"name": bson.M{"$regex": query, "$options": "i"}},
+			},
+		}
+		cursor, err1 := ProductCollection.Find(ctx, filter)
+		if err1 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching products"})
+			return
+		}
+		defer cursor.Close(ctx)
+		err2 := cursor.All(ctx, &productList)
+		if err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding products"})
+			return
+		}
+		if err2 = cursor.Err(); err2 != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error fetching products"})
+			return
+		}
+
+		c.IndentedJSON(http.StatusOK, productList)
 	}
 }
