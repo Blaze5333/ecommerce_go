@@ -3,11 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"log"
-	"net/http"
-	"strings"
-	"time"
-
 	"github.com/Blaze5333/ecommerce_go/database"
 	"github.com/Blaze5333/ecommerce_go/models"
 	"github.com/Blaze5333/ecommerce_go/tokens"
@@ -17,6 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
+	"log"
+	"net/http"
+	"time"
 )
 
 var Validate = validator.New()
@@ -32,10 +30,9 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), nil
 }
 func VerifyPassword(userpassword, givenpassword string) (bool, string) {
-	// Implementation for verifying the password
-	err := bcrypt.CompareHashAndPassword([]byte(userpassword), []byte(givenpassword))
+	err := bcrypt.CompareHashAndPassword([]byte(givenpassword), []byte(userpassword))
 	if err != nil {
-		return false, "Password verification failed"
+		return false, err.Error()
 	}
 	return true, ""
 }
@@ -107,7 +104,7 @@ func Login() gin.HandlerFunc {
 		// Implementation for user login
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
-		var user models.User
+		var user models.LoginUser
 		if err := c.BindJSON(&user); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -125,13 +122,20 @@ func Login() gin.HandlerFunc {
 			return
 		}
 		passwordCorrect, msg := VerifyPassword(*user.Password, *foundUser.Password)
+
 		if !passwordCorrect {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 			fmt.Println("Password verification failed:", msg)
 			return
 		}
-		token, refresh_token, _ := tokens.GenerateToken(*foundUser.Email, *foundUser.First_Name, *foundUser.Last_Name, foundUser.User_ID)
-		err1 := tokens.UpdateToken(token, refresh_token, foundUser.User_ID, UserCollection)
+		token, refresh_token, err := tokens.GenerateToken(*foundUser.Email, *foundUser.First_Name, *foundUser.Last_Name, foundUser.User_ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Error generating token", "error": err.Error()})
+			fmt.Println("Error generating token:", err)
+			return
+		}
+		fmt.Println("Token generated successfully:", token)
+		err1 := tokens.UpdateToken(token, refresh_token, foundUser.User_ID)
 		if err1 != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error updating token"})
 			return
@@ -158,7 +162,7 @@ func AddProduct() gin.HandlerFunc {
 func SearchProduct() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Implementation for searching a product
-		var productList []models.Product
+		var productList []models.ProductUser
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
 		cursor, err := ProductCollection.Find(ctx, bson.M{})
@@ -169,7 +173,7 @@ func SearchProduct() gin.HandlerFunc {
 		defer cursor.Close(ctx)
 		err = cursor.All(ctx, &productList)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding products"})
+			c.JSON(http.StatusInternalServerError, gin.H{"message": "Error decoding products", "error": err.Error()})
 			return
 		}
 		if err = cursor.Err(); err != nil {
@@ -185,10 +189,8 @@ func SearchProduct() gin.HandlerFunc {
 func SearchProductByQuery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query, err := c.GetQuery("query")
-		var a string = "mustafa chai"
-
-		var productList []models.Product
-		if err != true || strings.TrimSpace(a) == "" {
+		var productList []models.ProductUser
+		if !err {
 			log.Println("Query parameter is required")
 			c.Header("Content-Type", "application/json")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter is required"})
@@ -199,7 +201,7 @@ func SearchProductByQuery() gin.HandlerFunc {
 		defer cancel()
 		filter := bson.M{
 			"$or": []bson.M{
-				{"name": bson.M{"$regex": query, "$options": "i"}},
+				{"product_name": bson.M{"$regex": query, "$options": "i"}},
 			},
 		}
 		cursor, err1 := ProductCollection.Find(ctx, filter)

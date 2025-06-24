@@ -2,14 +2,23 @@ package database
 
 import (
 	"context"
+	"log"
+	"os"
+	"time"
+
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"log"
-	"time"
 )
 
 func DBSet() *mongo.Client {
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb+srv://mustafa:Mufaddal*53@cluster0.mqghj5s.mongodb.net/"))
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file:", err)
+		return nil
+	}
+	var DATABASE_URI = os.Getenv("DATABASE_URI")
+	client, err := mongo.NewClient(options.Client().ApplyURI(DATABASE_URI))
 	if err != nil {
 		log.Fatal("Error creating MongoDB client:", err)
 		return nil
